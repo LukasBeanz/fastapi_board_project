@@ -14,7 +14,9 @@ from app.models import User  # 현재 로그인 사용자를 조회하기 위해
 
 load_dotenv()  # .env 파일 값을 환경변수로 등록합니다.
 
-SECRET_KEY = os.getenv("SECRET_KEY", "change-this-secret-key")  # JWT 서명에 사용할 비밀키입니다.
+SECRET_KEY = os.getenv("SECRET_KEY")  # JWT 서명에 사용할 비밀키입니다.
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY 환경변수가 없습니다. .env 파일을 확인하세요.")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")  # JWT 서명 알고리즘입니다.
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))  # 토큰 만료 시간입니다.
 

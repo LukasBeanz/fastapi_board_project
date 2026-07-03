@@ -2,7 +2,8 @@
 # 자유게시글 CRUD API를 정의하는 라우터 파일입니다.
 
 from fastapi import APIRouter, Depends, HTTPException, status  # 라우터, 의존성 주입, HTTP 오류를 사용합니다.
-from sqlalchemy.orm import Session  # DB 세션 타입 힌트에 사용합니다.
+from sqlalchemy import update  # 조회수 증가 시 updated_at 갱신을 막기 위해 SQL UPDATE를 직접 사용합니다.
+from sqlalchemy.orm import Session, joinedload  # DB 세션 타입 힌트와 N+1 방지용 즉시 로딩에 사용합니다.
 from app.database import get_db  # DB 세션 의존성 함수입니다.
 from app.models import Board, User  # 게시글과 회원 ORM 모델입니다.
 from app.schemas import BoardCreate, BoardDetailResponse, BoardListResponse, BoardUpdate  # 게시글 요청/응답 스키마입니다.
@@ -50,14 +51,15 @@ def create_board(board_data: BoardCreate, db: Session = Depends(get_db), current
     return to_board_detail_response(new_board)  # 생성된 게시글 상세 정보를 반환합니다.
 
 
-@router.get("", response_model=list[BoardListResponse])
+@router.get("", response_model=list[BoardListResponse], tags=["자유게시판"])
 def get_boards(db: Session = Depends(get_db)):
     # 게시글 전체 목록을 조회하는 API입니다.
-    boards = db.query(Board).order_by(Board.id.desc()).all()  # 게시글을 최신순으로 전체 조회합니다.
+    # joinedload로 writer를 한 번의 JOIN 쿼리로 함께 가져와 N+1 문제를 방지합니다.
+    boards = db.query(Board).options(joinedload(Board.writer)).order_by(Board.id.desc()).all()
     return [to_board_list_response(board) for board in boards]  # 각 게시글을 목록 응답 구조로 변환해 반환합니다.
 
 
-@router.get("/{board_id}", response_model=BoardDetailResponse)
+@router.get("/{board_id}", response_model=BoardDetailResponse, tags=["자유게시판"])
 def get_board(board_id: int, db: Session = Depends(get_db)):
     # 게시글 상세 조회 API입니다.
     # 이 API는 조회할 때마다 조회수를 1 증가시킵니다.
@@ -65,7 +67,9 @@ def get_board(board_id: int, db: Session = Depends(get_db)):
     if not board:  # 게시글이 없으면 404 오류를 반환합니다.
         raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")  # 존재하지 않는 게시글 오류입니다.
 
-    board.view_count += 1  # 상세 조회 성공 시 조회수를 1 증가시킵니다.
+    # ORM 객체를 직접 수정하면 onupdate 훅이 발동해 updated_at이 갱신됩니다.
+    # SQL UPDATE로 직접 처리하면 updated_at 컬럼을 건드리지 않습니다.
+    db.execute(update(Board).where(Board.id == board_id).values(view_count=Board.view_count + 1))
     db.commit()  # UPDATE 쿼리를 실제 DB에 반영합니다.
     db.refresh(board)  # 증가된 조회수 값을 객체에 다시 반영합니다.
     return to_board_detail_response(board)  # 상세 응답을 반환합니다.
